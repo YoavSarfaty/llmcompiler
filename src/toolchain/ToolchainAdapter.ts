@@ -1,12 +1,4 @@
-import type { Diagnostic } from "../types/diagnostics.ts";
-
-/**
- * The toolchain seam (decisions.md D-01).
- *
- * Both Phase 0 candidates implement this interface, so the coordinator
- * does not know or care whether LLVM runs as WASI CLI tools or as an
- * in-process library.
- */
+import { diagnostic, type Diagnostic, type Stage } from "../types/diagnostics.ts";
 
 export interface ToolchainInfo {
   toolchainVersion: string;
@@ -42,11 +34,42 @@ export class ToolchainUnavailableError extends Error {
   }
 }
 
-/**
- * Current build status. Flipped when the Phase 0 artifact lands.
- */
+const TOOLCHAIN_UNAVAILABLE_REASON =
+  "The browser LLVM artifact is not installed. No LLVM parsing, verification, code generation, linking, or execution is available.";
+
+/** Fail-closed adapter used until a real Phase 0 toolchain artifact is integrated. */
+export class UnavailableToolchain implements ToolchainAdapter {
+  async init(): Promise<ToolchainInfo> {
+    throw new ToolchainUnavailableError(TOOLCHAIN_UNAVAILABLE_REASON);
+  }
+
+  async parse(_ir: string): Promise<ToolchainResult> {
+    return this.unavailable("parse");
+  }
+
+  async verify(_ir: string): Promise<ToolchainResult> {
+    return this.unavailable("verify");
+  }
+
+  async compile(_ir: string, _options: { optimize: boolean }): Promise<LinkResult> {
+    return this.unavailable("link");
+  }
+
+  private unavailable(stage: Stage): ToolchainResult {
+    return {
+      ok: false,
+      diagnostics: [
+        diagnostic("E012", {
+          stage,
+          message: "LLVM toolchain unavailable.",
+          details: TOOLCHAIN_UNAVAILABLE_REASON,
+        }),
+      ],
+    };
+  }
+}
+
 export const TOOLCHAIN_STATUS = {
   available: false,
-  reason:
-    "The browser LLVM toolchain is not part of this build. Structural checks run locally; verification, code generation, linking and execution are disabled.",
+  reason: TOOLCHAIN_UNAVAILABLE_REASON,
 } as const;

@@ -43,12 +43,15 @@ export function App() {
   const client = useMemo(() => new MockLlmClient(), []);
   const [source, setSource] = useState(FIB_SOURCE);
   const [state, setState] = useState<CompileOutput | null>(null);
+  const [lastSuccessfulState, setLastSuccessfulState] = useState<CompileOutput | null>(null);
+  const [lastSuccessfulSource, setLastSuccessfulSource] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
   const [cursorOffset, setCursorOffset] = useState(0);
   const [pinnedLines, setPinnedLines] = useState<number[]>([]);
   const [tab, setTab] = useState<"diagnostics" | "console">("diagnostics");
   const [aboutOpen, setAboutOpen] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState("");
+  const [mobilePane, setMobilePane] = useState<"source" | "ir">("source");
   const requestCounter = useRef(0);
 
   useEffect(() => {
@@ -63,6 +66,10 @@ export function App() {
       }).then((out) => {
         if (id !== requestCounter.current) return; // stale response
         setState(out);
+        if (out.succeeded) {
+          setLastSuccessfulState(out);
+          setLastSuccessfulSource(source);
+        }
         setBusy(false);
         setPinnedLines([]);
       });
@@ -70,10 +77,13 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [source, client]);
 
+  const displayState = state?.succeeded ? state : lastSuccessfulState;
+  const hasStaleIr = Boolean(displayState?.ir && (busy || source !== lastSuccessfulSource));
+
   const selectedIds = useMemo(() => {
     const ids = new Set<string>();
-    if (!state) return ids;
-    for (const mapping of state.mappings) {
+    if (!displayState || hasStaleIr) return ids;
+    for (const mapping of displayState.mappings) {
       const underCursor = mapping.sourceRanges.some(
         (range) => cursorOffset >= range.from && cursorOffset < range.to,
       );
@@ -81,17 +91,18 @@ export function App() {
         for (const id of mapping.instructionIds) ids.add(id);
       }
     }
-    for (const instruction of state.instructions) {
+    for (const instruction of displayState.instructions) {
       if (pinnedLines.includes(instruction.line)) ids.add(instruction.id);
     }
     return ids;
-  }, [state, cursorOffset, pinnedLines]);
+  }, [displayState, hasStaleIr, cursorOffset, pinnedLines]);
 
   const status = compileStatus(state, busy);
   const review = reviewStatus(state?.review ?? null);
   const errors = state?.diagnostics.filter((d) => d.severity === "error") ?? [];
   const warnings = state?.diagnostics.filter((d) => d.severity !== "error") ?? [];
-  const canRun = TOOLCHAIN_STATUS.available && Boolean(state?.succeeded) && review.tone !== "error";
+  const canRun =
+    TOOLCHAIN_STATUS.available && Boolean(state?.succeeded) && !busy && !hasStaleIr && review.tone !== "error";
 
   async function copyDiagnosticBundle() {
     const bundle = createDiagnosticBundle({
@@ -166,8 +177,27 @@ export function App() {
         ) : null}
       </div>
 
-      <main className="panes">
-        <section className="pane">
+      <div className="mobile-pane-tabs" aria-label="Editor panels">
+        <button
+          className={mobilePane === "source" ? "mobile-pane-tab active" : "mobile-pane-tab"}
+          type="button"
+          aria-pressed={mobilePane === "source"}
+          onClick={() => setMobilePane("source")}
+        >
+          Source
+        </button>
+        <button
+          className={mobilePane === "ir" ? "mobile-pane-tab active" : "mobile-pane-tab"}
+          type="button"
+          aria-pressed={mobilePane === "ir"}
+          onClick={() => setMobilePane("ir")}
+        >
+          LLVM IR
+        </button>
+      </div>
+
+      <main className={`panes mobile-${mobilePane}`}>
+        <section className="pane source-pane">
           <div className="pane-head">
             <h2>Source</h2>
             <span className="muted">{source.length} chars</span>
@@ -175,12 +205,18 @@ export function App() {
           <SourceEditor initialDoc={FIB_SOURCE} onChange={setSource} onCursorOffset={setCursorOffset} />
         </section>
 
-        <section className="pane">
+        <section className="pane ir-pane">
           <div className="pane-head">
             <h2>LLVM IR</h2>
-            <span className="muted read-only">read-only</span>
+            <span className={hasStaleIr ? "stale-label" : "muted read-only"}>
+              {hasStaleIr ? "stale · previous successful IR" : "read-only"}
+            </span>
           </div>
-          <IRViewer ir={state?.ir ?? null} instructions={state?.instructions ?? []} selectedIds={selectedIds} />
+          <IRViewer
+            ir={displayState?.ir ?? null}
+            instructions={displayState?.instructions ?? []}
+            selectedIds={selectedIds}
+          />
         </section>
       </main>
 
@@ -199,7 +235,7 @@ export function App() {
           <span className="spacer" />
           {state ? (
             <span className="muted">
-              {state.mappings.length} mappings · {state.instructions.length} instructions
+              {displayState?.mappings.length ?? 0} mappings · {displayState?.instructions.length ?? 0} instructions
               {state.timings.total !== undefined ? ` · ${state.timings.total} ms` : ""}
             </span>
           ) : null}
@@ -222,7 +258,9 @@ export function App() {
                     key={`${diagnostic.code}-${index}`}
                     className={`diagnostic ${diagnostic.severity}`}
                     onClick={() => {
-                      if (diagnostic.irRanges) setPinnedLines(diagnostic.irRanges.map((range) => range.line));
+                      if (!hasStaleIr && diagnostic.irRanges) {
+                        setPinnedLines(diagnostic.irRanges.map((range) => range.line));
+                      }
                     }}
                   >
                     <span className="code">{diagnostic.code}</span>
