@@ -127,8 +127,13 @@ export function App() {
   const review = reviewStatus(state?.review ?? null);
   const errors = state?.diagnostics.filter((d) => d.severity === "error") ?? [];
   const warnings = state?.diagnostics.filter((d) => d.severity !== "error") ?? [];
+  const reviewAllowsExecution = state?.review?.verdict === "pass" || state?.review?.verdict === "inconclusive";
   const canRun =
-    TOOLCHAIN_STATUS.available && Boolean(state?.succeeded) && !busy && !hasStaleIr && review.tone !== "error";
+    TOOLCHAIN_STATUS.available &&
+    Boolean(state?.succeeded) &&
+    !busy &&
+    !hasStaleIr &&
+    reviewAllowsExecution;
 
   async function copyDiagnosticBundle() {
     const bundle = createDiagnosticBundle({
