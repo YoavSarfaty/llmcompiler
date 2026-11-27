@@ -5,7 +5,7 @@ import { LIMITS } from "./limits.ts";
 import { StageTimeoutError, withStageTimeout } from "./timeout.ts";
 import { checkSourceLimits } from "./sourceRanges.ts";
 import { validateCompilePayload } from "./validateResult.ts";
-import { injectTarget } from "./target.ts";
+import { injectTarget, normalizeRuntimeDeclarations } from "./target.ts";
 import { validateIrText } from "./validateIr.ts";
 import { resolveMappings, type ResolvedMapping } from "./mappingResolver.ts";
 import { allInstructions, type InstructionRef } from "./irSpans.ts";
@@ -166,9 +166,11 @@ export async function runCompilation(input: CompileInput): Promise<CompileOutput
 
   const injected = injectTarget(rawIr);
   diagnostics.push(...injected.diagnostics);
+  const declarations = normalizeRuntimeDeclarations(injected.ir);
+  diagnostics.push(...declarations.diagnostics);
 
   // S3 --- conformance, plus the structural half of S4
-  const validation = validateIrText(injected.ir);
+  const validation = validateIrText(declarations.ir);
   diagnostics.push(...validation.diagnostics);
   if (hasErrors(validation.diagnostics)) {
     return { ...empty, diagnostics, timings: outcome.timings };
@@ -187,7 +189,7 @@ export async function runCompilation(input: CompileInput): Promise<CompileOutput
         requestId: input.requestId,
         documentVersion: input.documentVersion,
         source: input.source,
-        ir: injected.ir,
+        ir: declarations.ir,
         notes: payload.notes ?? [],
       }),
       input.timeouts?.reviewMs ?? LIMITS.reviewTimeoutMs,
@@ -210,7 +212,7 @@ export async function runCompilation(input: CompileInput): Promise<CompileOutput
   return {
     diagnostics,
     notes: payload.notes ?? [],
-    ir: injected.ir,
+    ir: declarations.ir,
     mappings: resolution.mappings,
     instructions,
     review,

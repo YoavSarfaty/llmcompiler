@@ -65,4 +65,36 @@ describe("compilation pipeline", () => {
     expect(out.ir).not.toContain("x86_64-pc-linux-gnu");
     expect(out.diagnostics.some((d) => d.code === "W002")).toBe(true);
   });
+
+  it("replaces mismatched runtime declarations with the ABI signature", async () => {
+    let reviewedIr = "";
+    const out = await runCompilation({
+      source: FIB_SOURCE,
+      documentVersion: 1,
+      requestId: "req-declaration-normalization",
+      client: {
+        capabilities: () => client.capabilities(),
+        review: (request) => {
+          reviewedIr = request.ir;
+          return client.review(request);
+        },
+        compile: async (request) => {
+          const outcome = await client.compile(request);
+          return {
+            ...outcome,
+            payload: {
+              ...outcome.payload,
+              ir: `${outcome.payload.ir}\ndeclare i64 @strlen(i64)`,
+            },
+          };
+        },
+      },
+    });
+
+    expect(out.succeeded).toBe(true);
+    expect(out.ir).toContain("declare i32 @strlen(ptr)");
+    expect(out.ir).not.toContain("declare i64 @strlen(i64)");
+    expect(reviewedIr).toContain("declare i32 @strlen(ptr)");
+    expect(out.diagnostics.some((item) => item.code === "W002")).toBe(true);
+  });
 });

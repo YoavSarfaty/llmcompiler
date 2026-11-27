@@ -170,3 +170,13 @@ export function checkAbi(module: IrModule): Diagnostic[] {
 
   return diagnostics;
 }
+
+/** Runtime declarations that may be normalized to the canonical ABI prelude. */
+export function mismatchedRuntimeDeclarationSymbols(module: IrModule): string[] {
+  return parseSignatures(module)
+    .filter((signature) => {
+      const canonical = SIGNATURES_BY_SYMBOL.get(signature.symbol);
+      return signature.kind === "declare" && canonical !== undefined && !signatureMatches(signature, canonical);
+    })
+    .map((signature) => signature.symbol);
+}
