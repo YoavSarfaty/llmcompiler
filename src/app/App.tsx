@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { SourceEditor, type SourceHighlight } from "../editor/SourceEditor.tsx";
 import { IRViewer } from "../ir/IRViewer.tsx";
 import { MockLlmClient } from "../model/MockLlmClient.ts";
@@ -55,6 +55,7 @@ export function App() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState("");
   const [mobilePane, setMobilePane] = useState<"source" | "ir">("source");
+  const [splitPercent, setSplitPercent] = useState(50);
   const requestCounter = useRef(0);
 
   useEffect(() => {
@@ -169,6 +170,13 @@ export function App() {
     });
   }
 
+  function resizePanels(clientX: number, container: HTMLElement | null) {
+    if (!container) return;
+    const bounds = container.getBoundingClientRect();
+    const next = ((clientX - bounds.left) / bounds.width) * 100;
+    setSplitPercent(Math.max(28, Math.min(72, next)));
+  }
+
   return (
     <div className="app">
       <header className="topbar">
@@ -247,7 +255,10 @@ export function App() {
         </button>
       </div>
 
-      <main className={`panes mobile-${mobilePane}`}>
+      <main
+        className={`panes mobile-${mobilePane}`}
+        style={{ "--source-fr": `${splitPercent}fr`, "--ir-fr": `${100 - splitPercent}fr` } as CSSProperties}
+      >
         <section className="pane source-pane">
           <div className="pane-head">
             <h2>Source</h2>
@@ -262,6 +273,26 @@ export function App() {
             highlights={sourceHighlights}
           />
         </section>
+
+        <button
+          className="pane-resizer"
+          type="button"
+          role="separator"
+          aria-label="Resize source and LLVM IR panels"
+          aria-orientation="vertical"
+          aria-valuemin={28}
+          aria-valuemax={72}
+          aria-valuenow={Math.round(splitPercent)}
+          onPointerDown={(event) => event.currentTarget.setPointerCapture(event.pointerId)}
+          onPointerMove={(event) => {
+            if (event.buttons !== 1) return;
+            resizePanels(event.clientX, event.currentTarget.parentElement);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowLeft") setSplitPercent((current) => Math.max(28, current - 5));
+            if (event.key === "ArrowRight") setSplitPercent((current) => Math.min(72, current + 5));
+          }}
+        />
 
         <section className="pane ir-pane">
           <div className="pane-head">

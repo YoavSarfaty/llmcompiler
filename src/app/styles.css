@@ -182,7 +182,7 @@ button:focus-visible {
 
 .panes {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, var(--source-fr, 1fr)) 8px minmax(0, var(--ir-fr, 1fr));
   min-height: 0;
 }
 
@@ -200,6 +200,30 @@ button:focus-visible {
 
 .pane:last-child {
   border-right: none;
+}
+
+.pane-resizer {
+  position: relative;
+  z-index: 1;
+  width: 8px;
+  padding: 0;
+  cursor: col-resize;
+  touch-action: none;
+  background: var(--border);
+}
+
+.pane-resizer::before {
+  position: absolute;
+  inset: 0 3px;
+  content: "";
+  background: var(--muted);
+  opacity: 0.35;
+}
+
+.pane-resizer:hover::before,
+.pane-resizer:focus-visible::before {
+  background: var(--accent);
+  opacity: 1;
 }
 
 .pane-head {
@@ -480,6 +504,10 @@ button:focus-visible {
   .panes {
     grid-template-columns: 1fr;
     grid-template-rows: minmax(0, 1fr);
+  }
+
+  .pane-resizer {
+    display: none;
   }
 
   .panes.mobile-source .ir-pane,
