@@ -4,7 +4,7 @@ import { VERSIONS } from "../types/protocol.ts";
 import { LIMITS } from "./limits.ts";
 import { StageTimeoutError, withStageTimeout } from "./timeout.ts";
 import { checkSourceLimits } from "./sourceRanges.ts";
-import { validateCompilePayload } from "./validateResult.ts";
+import { validateCompilePayload, validateReviewPayload } from "./validateResult.ts";
 import { injectTarget, normalizeRuntimeDeclarations } from "./target.ts";
 import { validateIrText } from "./validateIr.ts";
 import { resolveMappings, type ResolvedMapping } from "./mappingResolver.ts";
@@ -208,7 +208,18 @@ export async function runCompilation(input: CompileInput): Promise<CompileOutput
   const reviewOutcome = await reviewPromise;
   let review: ReviewPayload;
   if ("value" in reviewOutcome) {
-    review = reviewOutcome.value;
+    const validatedReview = validateReviewPayload(reviewOutcome.value);
+    if (validatedReview.value) {
+      review = validatedReview.value;
+    } else {
+      review = inconclusiveReview(input);
+      diagnostics.push(
+        diagnostic("W003", {
+          stage: "review",
+          message: "Semantic review returned an invalid response; its verdict is inconclusive.",
+        }),
+      );
+    }
   } else {
     review = inconclusiveReview(input);
     diagnostics.push(

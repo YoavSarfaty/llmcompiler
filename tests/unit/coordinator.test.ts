@@ -128,4 +128,21 @@ describe("compilation pipeline", () => {
     expect(out.ir).toBeNull();
     expect(out.review).toBeNull();
   });
+
+  it("treats a malformed review response as inconclusive", async () => {
+    const out = await runCompilation({
+      source: FIB_SOURCE,
+      documentVersion: 1,
+      requestId: "req-malformed-review",
+      client: {
+        capabilities: () => client.capabilities(),
+        compile: (request) => client.compile(request),
+        review: async () => ({ verdict: "pass" }) as never,
+      },
+    });
+
+    expect(out.succeeded).toBe(true);
+    expect(out.review?.verdict).toBe("inconclusive");
+    expect(out.diagnostics.some((item) => item.code === "W003" && item.stage === "review")).toBe(true);
+  });
 });
