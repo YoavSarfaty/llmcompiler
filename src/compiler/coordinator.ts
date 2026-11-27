@@ -37,6 +37,8 @@ export interface CompileOutput {
   succeeded: boolean;
 }
 
+type ReviewStageOutcome = { value: ReviewPayload } | { error: unknown };
+
 function inconclusiveReview(input: CompileInput): ReviewPayload {
   return {
     protocolVersion: VERSIONS.protocol,
@@ -169,6 +171,28 @@ export async function runCompilation(input: CompileInput): Promise<CompileOutput
   const declarations = normalizeRuntimeDeclarations(injected.ir);
   diagnostics.push(...declarations.diagnostics);
 
+  // S9 starts after normalization and overlaps deterministic conformance checks.
+  let reviewOperation: Promise<ReviewPayload>;
+  try {
+    reviewOperation = input.client.review({
+      protocolVersion: VERSIONS.protocol,
+      requestId: input.requestId,
+      documentVersion: input.documentVersion,
+      source: input.source,
+      ir: declarations.ir,
+      notes: payload.notes ?? [],
+    });
+  } catch (error) {
+    reviewOperation = Promise.reject(error);
+  }
+  const reviewPromise: Promise<ReviewStageOutcome> = withStageTimeout(
+    reviewOperation,
+    input.timeouts?.reviewMs ?? LIMITS.reviewTimeoutMs,
+    "review",
+  )
+    .then((value): ReviewStageOutcome => ({ value }))
+    .catch((error): ReviewStageOutcome => ({ error }));
+
   // S3 --- conformance, plus the structural half of S4
   const validation = validateIrText(declarations.ir);
   diagnostics.push(...validation.diagnostics);
@@ -180,27 +204,17 @@ export async function runCompilation(input: CompileInput): Promise<CompileOutput
   const resolution = resolveMappings(validation.module, input.source, payload.mappings ?? []);
   diagnostics.push(...resolution.diagnostics);
 
-  // S9 --- review (dispatched after IR exists; gates execution only)
-  let review: ReviewPayload | null = null;
-  try {
-    review = await withStageTimeout(
-      input.client.review({
-        protocolVersion: VERSIONS.protocol,
-        requestId: input.requestId,
-        documentVersion: input.documentVersion,
-        source: input.source,
-        ir: declarations.ir,
-        notes: payload.notes ?? [],
-      }),
-      input.timeouts?.reviewMs ?? LIMITS.reviewTimeoutMs,
-      "review",
-    );
-  } catch (error) {
+  // S9 is awaited only after conformance succeeds; failures discard its result.
+  const reviewOutcome = await reviewPromise;
+  let review: ReviewPayload;
+  if ("value" in reviewOutcome) {
+    review = reviewOutcome.value;
+  } else {
     review = inconclusiveReview(input);
     diagnostics.push(
       diagnostic("W003", {
         stage: "review",
-        message: error instanceof StageTimeoutError
+        message: reviewOutcome.error instanceof StageTimeoutError
           ? "Semantic review timed out; its verdict is inconclusive."
           : "Semantic review could not complete; its verdict is inconclusive.",
       }),

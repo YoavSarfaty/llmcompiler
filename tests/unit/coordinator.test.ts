@@ -97,4 +97,35 @@ describe("compilation pipeline", () => {
     expect(reviewedIr).toContain("declare i32 @strlen(ptr)");
     expect(out.diagnostics.some((item) => item.code === "W002")).toBe(true);
   });
+
+  it("starts semantic review before local conformance and discards it on failure", async () => {
+    let reviewStarted = false;
+    const out = await runCompilation({
+      source: FIB_SOURCE,
+      documentVersion: 1,
+      requestId: "req-review-overlap",
+      client: {
+        capabilities: () => client.capabilities(),
+        review: (request) => {
+          reviewStarted = true;
+          return client.review(request);
+        },
+        compile: async (request) => {
+          const outcome = await client.compile(request);
+          return {
+            ...outcome,
+            payload: {
+              ...outcome.payload,
+              ir: `define i32 @main() {\nentry:\n  %p = alloca i32*\n  ret i32 0\n}`,
+            },
+          };
+        },
+      },
+    });
+
+    expect(reviewStarted).toBe(true);
+    expect(out.succeeded).toBe(false);
+    expect(out.ir).toBeNull();
+    expect(out.review).toBeNull();
+  });
 });
