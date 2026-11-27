@@ -44,9 +44,11 @@ export function resolveMappings(
 ): ResolutionResult {
   const mappings: ResolvedMapping[] = [];
   const diagnostics: Diagnostic[] = [];
-  const cursors = new Map<string, number>();
 
   for (const raw of rawMappings) {
+    // Occurrence consumption is local to one mapping. A different mapping may
+    // legitimately reference the same instruction (many-to-many relation).
+    const cursors = new Map<string, number>();
     const validRanges: SourceRange[] = [];
     for (const range of raw.sourceRanges) {
       if (isValidSourceRange(source, range)) {

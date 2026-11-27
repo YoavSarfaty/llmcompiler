@@ -32,7 +32,7 @@ describe("mapping resolution", () => {
     expect(result.mappings[1]!.instructionIds).toEqual(["fn:fib#5", "fn:fib#6"]);
   });
 
-  it("consumes duplicate anchors in module order", () => {
+  it("consumes duplicate anchors in module order within one mapping", () => {
     const module = parseIrModule(`define i32 @main() {
 entry:
   store i32 0, ptr null, align 4
@@ -42,11 +42,42 @@ entry:
 `);
     const source = "x";
     const result = resolveMappings(module, source, [
-      { semanticId: "a", sourceRanges: [{ from: 0, to: 1 }], irRefs: [{ function: "main", anchor: "store i32 0, ptr null, align 4" }] },
-      { semanticId: "b", sourceRanges: [{ from: 0, to: 1 }], irRefs: [{ function: "main", anchor: "store i32 0, ptr null, align 4" }] },
+      {
+        semanticId: "both-stores",
+        sourceRanges: [{ from: 0, to: 1 }],
+        irRefs: [
+          { function: "main", anchor: "store i32 0, ptr null, align 4" },
+          { function: "main", anchor: "store i32 0, ptr null, align 4" },
+        ],
+      },
     ]);
-    expect(result.mappings[0]!.instructionIds).toEqual(["fn:main#0"]);
-    expect(result.mappings[1]!.instructionIds).toEqual(["fn:main#1"]);
+    expect(result.mappings[0]!.instructionIds).toEqual(["fn:main#0", "fn:main#1"]);
+  });
+
+  it("allows different mappings to reference the same instruction", () => {
+    const module = parseIrModule(`define i32 @main() {
+entry:
+  ret i32 0
+}
+`);
+    const result = resolveMappings(module, "ab", [
+      {
+        semanticId: "first",
+        sourceRanges: [{ from: 0, to: 1 }],
+        irRefs: [{ function: "main", anchor: "ret i32 0" }],
+      },
+      {
+        semanticId: "second",
+        sourceRanges: [{ from: 1, to: 2 }],
+        irRefs: [{ function: "main", anchor: "ret i32 0" }],
+      },
+    ]);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.mappings.map((mapping) => mapping.instructionIds)).toEqual([
+      ["fn:main#0"],
+      ["fn:main#0"],
+    ]);
   });
 
   it("drops an unresolvable anchor with W001 instead of guessing", () => {
