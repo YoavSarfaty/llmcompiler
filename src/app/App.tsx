@@ -7,7 +7,7 @@ import { Console } from "../console/Console.tsx";
 import { runCompilation, type CompileOutput } from "../compiler/coordinator.ts";
 import { LIMITS } from "../compiler/limits.ts";
 import { TOOLCHAIN_STATUS } from "../toolchain/ToolchainAdapter.ts";
-import { hasErrors, type Diagnostic } from "../types/diagnostics.ts";
+import { diagnostic, hasErrors, type Diagnostic } from "../types/diagnostics.ts";
 import type { ReviewPayload } from "../types/protocol.ts";
 import { createDiagnosticBundle } from "./diagnosticBundle.ts";
 
@@ -77,6 +77,25 @@ export function App() {
         setBusy(false);
         setPinnedLines([]);
         setPinnedInstructionIds(new Set());
+      }).catch((error: unknown) => {
+        if (id !== requestCounter.current) return;
+        setState({
+          diagnostics: [
+            diagnostic("E012", {
+              stage: "generation",
+              message: "Compilation stopped because of an unexpected internal error.",
+              details: error instanceof Error ? error.message : String(error),
+            }),
+          ],
+          notes: [],
+          ir: null,
+          mappings: [],
+          instructions: [],
+          review: null,
+          timings: {},
+          succeeded: false,
+        });
+        setBusy(false);
       });
     }, LIMITS.debounceMs);
     return () => window.clearTimeout(timer);
