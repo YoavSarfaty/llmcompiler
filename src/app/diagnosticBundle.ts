@@ -1,4 +1,4 @@
-import type { Diagnostic } from "../types/diagnostics.ts";
+import { CODES, type Diagnostic } from "../types/diagnostics.ts";
 import { VERSIONS } from "../types/protocol.ts";
 import type { ReviewPayload } from "../types/protocol.ts";
 
@@ -24,11 +24,11 @@ export function createDiagnosticBundle(input: DiagnosticBundleInput): string {
         prompt: VERSIONS.prompt,
         reviewPrompt: VERSIONS.reviewPrompt,
       },
-      diagnostics: input.diagnostics.map(({ code, severity, stage, message }) => ({
+      diagnostics: input.diagnostics.map(({ code, severity, stage }) => ({
         code,
         severity,
         stage,
-        message,
+        title: Object.hasOwn(CODES, code) ? CODES[code]!.title : "Diagnostic",
       })),
       timings: input.timings,
       reviewVerdict: input.review?.verdict ?? "not-run",

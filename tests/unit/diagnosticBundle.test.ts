@@ -8,7 +8,7 @@ describe("diagnostic bundle", () => {
       diagnostics: [
         diagnostic("E007", {
           stage: "verify",
-          message: "LLVM verification failed.",
+          message: "LLVM verification failed. Source excerpt: private source secret",
           details: "raw output that may contain source text",
           sourceRanges: [{ from: 12, to: 25 }],
         }),
@@ -28,11 +28,12 @@ describe("diagnostic bundle", () => {
       code: "E007",
       severity: "error",
       stage: "verify",
-      message: "LLVM verification failed.",
+      title: "LLVM IR parsing or verification failed",
     });
     expect(parsed.diagnostics[0]).not.toHaveProperty("details");
     expect(parsed.diagnostics[0]).not.toHaveProperty("sourceRanges");
     expect(bundle).not.toContain("raw output that may contain source text");
+    expect(bundle).not.toContain("private source secret");
     expect(parsed.timings).toEqual({ verify: 18, total: 40 });
     expect(parsed.reviewVerdict).toBe("inconclusive");
   });

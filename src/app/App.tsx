@@ -236,7 +236,7 @@ export function App() {
             </p>
             <p>
               No telemetry, analytics, backend, or remote inference is configured. The diagnostic bundle
-              contains version identifiers, codes, messages, timings, and review status only; it excludes
+              contains version identifiers, codes, static diagnostic titles, timings, and review status only; it excludes
               source text, IR, source ranges, and raw tool details.
             </p>
           </section>
