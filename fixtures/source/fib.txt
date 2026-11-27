@@ -1,0 +1,8 @@
+Make a function called fib:
+Takes number x
+If x is 0 or 1 return 1
+Else return fib of x-1 plus fib of x-2
+
+Ask user "what's you number dude:\n"
+Take user input number
+Print fib of user input
