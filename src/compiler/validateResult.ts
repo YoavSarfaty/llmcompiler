@@ -36,7 +36,7 @@ function validateDiagnostics(value: unknown): { ok: boolean; diagnostics: Diagno
     }
     const code = entry.code;
     const message = entry.message;
-    if (typeof code !== "string" || !(code in CODES)) {
+    if (typeof code !== "string" || !Object.hasOwn(CODES, code)) {
       errors.push(invalid(`diagnostics[${index}].code is not a known code.`, String(code)));
       return;
     }
@@ -177,15 +177,54 @@ export function validateReviewPayload(value: unknown): Validation<ReviewPayload>
     return { diagnostics: [invalid("Review output must be a JSON object.")] };
   }
   const errors: Diagnostic[] = [];
+  if (value.protocolVersion !== 1) errors.push(invalid("Unsupported review `protocolVersion`.", String(value.protocolVersion)));
+  if (value.schemaVersion !== 1) errors.push(invalid("Unsupported review `schemaVersion`.", String(value.schemaVersion)));
+  if (typeof value.requestId !== "string") errors.push(invalid("Review `requestId` must be a string."));
+  if (typeof value.documentVersion !== "number") errors.push(invalid("Review `documentVersion` must be a number."));
   if (value.verdict !== "pass" && value.verdict !== "fail" && value.verdict !== "inconclusive") {
     errors.push(invalid("`verdict` must be pass, fail or inconclusive."));
   }
-  if (!isRecord(value.checks)) {
+  const checkNames = [
+    "controlFlow",
+    "dataFlow",
+    "typesAndConversions",
+    "sideEffects",
+    "ioBehaviour",
+    "termination",
+  ] as const;
+  const rawChecks = isRecord(value.checks) ? value.checks : null;
+  const checksAreValid = rawChecks !== null && checkNames.every((name) => {
+    const check = rawChecks[name];
+    return check === "pass" || check === "fail" || check === "unknown";
+  });
+  if (!checksAreValid) {
     errors.push(invalid("`checks` must be an object."));
   }
   if (!Array.isArray(value.findings)) {
     errors.push(invalid("`findings` must be an array."));
   }
-  if (errors.length > 0) return { diagnostics: errors };
-  return { value: value as unknown as ReviewPayload, diagnostics: [] };
+  const findingResult = validateDiagnostics(value.findings);
+  errors.push(...findingResult.errors);
+  if (findingResult.diagnostics.some((finding) => finding.code !== "E006")) {
+    errors.push(invalid("Review findings may only use diagnostic code E006."));
+  }
+  if (value.verdict === "fail" && !findingResult.diagnostics.some((finding) => finding.severity === "error")) {
+    errors.push(invalid("A failed review must include at least one error finding."));
+  }
+  if (errors.length > 0 || !checksAreValid || rawChecks === null) return { diagnostics: errors };
+
+  const checks = Object.fromEntries(checkNames.map((name) => [name, rawChecks[name]])) as ReviewPayload["checks"];
+  const findings = findingResult.diagnostics.map((finding) => ({ ...finding, stage: "review" as const }));
+  return {
+    value: {
+      protocolVersion: 1,
+      schemaVersion: 1,
+      requestId: value.requestId as string,
+      documentVersion: value.documentVersion as number,
+      verdict: value.verdict as ReviewPayload["verdict"],
+      checks,
+      findings,
+    },
+    diagnostics: [],
+  };
 }

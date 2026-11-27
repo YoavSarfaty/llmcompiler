@@ -51,6 +51,12 @@ describe("model output validation", () => {
       diagnostics: [{ code: "E999", message: "Mystery." }],
     });
     expect(result.value).toBeUndefined();
+
+    const inheritedKey = validateCompilePayload({
+      ...validPayload,
+      diagnostics: [{ code: "__proto__", message: "Not a registered diagnostic." }],
+    });
+    expect(inheritedKey.value).toBeUndefined();
   });
 
   it("rejects an error payload with no error diagnostic", () => {
@@ -113,7 +119,61 @@ describe("model output validation", () => {
     });
     expect(ok.value).toBeDefined();
 
+    const failWithoutFinding = validateReviewPayload({
+      protocolVersion: 1,
+      schemaVersion: 1,
+      requestId: "req-fail",
+      documentVersion: 2,
+      verdict: "fail",
+      checks: {
+        controlFlow: "fail",
+        dataFlow: "unknown",
+        typesAndConversions: "unknown",
+        sideEffects: "unknown",
+        ioBehaviour: "unknown",
+        termination: "unknown",
+      },
+      findings: [],
+    });
+    expect(failWithoutFinding.value).toBeUndefined();
+    expect(failWithoutFinding.diagnostics.some((item) => item.message.includes("error finding"))).toBe(true);
+
     const bad = validateReviewPayload({ verdict: "probably" });
     expect(bad.value).toBeUndefined();
+  });
+
+  it("accepts a failed review only with an E006 error finding", () => {
+    const failedReview = {
+      protocolVersion: 1,
+      schemaVersion: 1,
+      requestId: "req-failed-review",
+      documentVersion: 4,
+      verdict: "fail",
+      checks: {
+        controlFlow: "fail",
+        dataFlow: "unknown",
+        typesAndConversions: "unknown",
+        sideEffects: "unknown",
+        ioBehaviour: "unknown",
+        termination: "unknown",
+      },
+      findings: [{ code: "E006", severity: "error", message: "Control flow differs." }],
+    };
+
+    const valid = validateReviewPayload(failedReview);
+    expect(valid.value?.verdict).toBe("fail");
+    expect(valid.value?.findings[0]?.stage).toBe("review");
+
+    const wrongCode = validateReviewPayload({
+      ...failedReview,
+      findings: [{ code: "E002", severity: "error", message: "Wrong finding code." }],
+    });
+    expect(wrongCode.value).toBeUndefined();
+
+    const invalidCheck = validateReviewPayload({
+      ...failedReview,
+      checks: { ...failedReview.checks, controlFlow: "maybe" },
+    });
+    expect(invalidCheck.value).toBeUndefined();
   });
 });

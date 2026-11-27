@@ -91,7 +91,7 @@ export interface DiagnosticInit {
 }
 
 export function diagnostic(code: string, init: DiagnosticInit): Diagnostic {
-  const info = CODES[code];
+  const info = Object.hasOwn(CODES, code) ? CODES[code] : undefined;
   if (!info) {
     throw new Error(`Unknown diagnostic code: ${code}`);
   }
