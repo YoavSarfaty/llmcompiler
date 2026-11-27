@@ -6,8 +6,10 @@ import { FIB_SOURCE } from "../model/fibFixture.ts";
 import { Console } from "../console/Console.tsx";
 import { runCompilation, type CompileOutput } from "../compiler/coordinator.ts";
 import { LIMITS } from "../compiler/limits.ts";
+import { TOOLCHAIN_STATUS } from "../toolchain/ToolchainAdapter.ts";
 import { hasErrors, type Diagnostic } from "../types/diagnostics.ts";
 import type { ReviewPayload } from "../types/protocol.ts";
+import { createDiagnosticBundle } from "./diagnosticBundle.ts";
 
 type Tone = "idle" | "busy" | "ok" | "warn" | "error";
 
@@ -20,10 +22,10 @@ function compileStatus(state: CompileOutput | null, busy: boolean): { label: str
 }
 
 function reviewStatus(review: ReviewPayload | null): { label: string; tone: Tone } {
-  if (!review) return { label: "Semantic review not run", tone: "warn" };
-  if (review.verdict === "pass") return { label: "Semantic review passed", tone: "ok" };
-  if (review.verdict === "fail") return { label: "Semantic review failed", tone: "error" };
-  return { label: "Semantic review inconclusive", tone: "warn" };
+  if (!review) return { label: "Mock review: not run", tone: "warn" };
+  if (review.verdict === "pass") return { label: "Mock review: pass", tone: "ok" };
+  if (review.verdict === "fail") return { label: "Mock review: fail", tone: "error" };
+  return { label: "Mock review: inconclusive", tone: "warn" };
 }
 
 function locationLabel(diagnostic: Diagnostic): string | null {
@@ -45,6 +47,8 @@ export function App() {
   const [cursorOffset, setCursorOffset] = useState(0);
   const [pinnedLines, setPinnedLines] = useState<number[]>([]);
   const [tab, setTab] = useState<"diagnostics" | "console">("diagnostics");
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState("");
   const requestCounter = useRef(0);
 
   useEffect(() => {
@@ -87,7 +91,21 @@ export function App() {
   const review = reviewStatus(state?.review ?? null);
   const errors = state?.diagnostics.filter((d) => d.severity === "error") ?? [];
   const warnings = state?.diagnostics.filter((d) => d.severity !== "error") ?? [];
-  const canRun = Boolean(state?.succeeded) && review.tone !== "error";
+  const canRun = TOOLCHAIN_STATUS.available && Boolean(state?.succeeded) && review.tone !== "error";
+
+  async function copyDiagnosticBundle() {
+    const bundle = createDiagnosticBundle({
+      diagnostics: state?.diagnostics ?? [],
+      timings: state?.timings ?? {},
+      review: state?.review ?? null,
+    });
+    try {
+      await navigator.clipboard.writeText(bundle);
+      setCopyFeedback("Diagnostic bundle copied (source and IR excluded).");
+    } catch {
+      setCopyFeedback("Clipboard access is unavailable in this browser context.");
+    }
+  }
 
   return (
     <div className="app">
@@ -105,18 +123,47 @@ export function App() {
           className="run"
           disabled={!canRun}
           title={
-            canRun
-              ? "Execution requires the LLVM toolchain, which is not part of this milestone."
-              : "Compile successfully first."
+            !TOOLCHAIN_STATUS.available
+              ? "Execution requires the LLVM toolchain, which is not part of this build."
+              : canRun
+                ? "Run the current WebAssembly module."
+                : "Compile successfully first."
           }
         >
           Run
+        </button>
+        <button
+          className="secondary"
+          type="button"
+          aria-expanded={aboutOpen}
+          aria-controls="about-limitations"
+          onClick={() => setAboutOpen((open) => !open)}
+        >
+          About &amp; limitations
         </button>
       </header>
 
       <div className="notice">
         This build uses a deterministic mock model and does not yet include the LLVM toolchain. Checks
         shown here are structural: source limits, IR subset, ABI conformance. Execution is disabled.
+        {aboutOpen ? (
+          <section className="about-panel" id="about-limitations" aria-label="About and limitations">
+            <h2>About this prototype</h2>
+            <p>
+              The current model and reviewer are deterministic fixtures. A “Mock review: pass”
+              result here is not a model assessment and is not proof that generated IR matches the source.
+            </p>
+            <p>
+              Real LLVM parsing, verification, code generation, linking, and WebAssembly execution are
+              not available in this build. The Run control is intentionally disabled.
+            </p>
+            <p>
+              No telemetry, analytics, backend, or remote inference is configured. The diagnostic bundle
+              contains version identifiers, codes, messages, timings, and review status only; it excludes
+              source text, IR, source ranges, and raw tool details.
+            </p>
+          </section>
+        ) : null}
       </div>
 
       <main className="panes">
@@ -146,6 +193,9 @@ export function App() {
           <button className={tab === "console" ? "tab active" : "tab"} onClick={() => setTab("console")}>
             Console
           </button>
+          <button className="secondary copy-diagnostics" type="button" onClick={() => void copyDiagnosticBundle()}>
+            Copy diagnostic bundle
+          </button>
           <span className="spacer" />
           {state ? (
             <span className="muted">
@@ -154,6 +204,9 @@ export function App() {
             </span>
           ) : null}
         </div>
+        <span className="sr-only" role="status" aria-live="polite">
+          {copyFeedback}
+        </span>
 
         {tab === "diagnostics" ? (
           <div className="diagnostics">
