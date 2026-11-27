@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MockLlmClient, isReferenceProgram, looksLikeRequest } from "../../src/model/MockLlmClient.ts";
-import { FIB_SOURCE } from "../../src/model/fibFixture.ts";
+import { FIB_IR, FIB_SOURCE } from "../../src/model/fibFixture.ts";
 import type { CompileRequest } from "../../src/types/protocol.ts";
 
 const client = new MockLlmClient();
@@ -58,7 +58,7 @@ describe("mock model", () => {
       requestId: "r",
       documentVersion: 1,
       source: FIB_SOURCE,
-      ir: "define i64 @fib(i64 %x) {\nentry:\n  ret i64 1\n}",
+      ir: FIB_IR,
       notes: [],
     });
     expect(good.verdict).toBe("pass");
@@ -72,5 +72,15 @@ describe("mock model", () => {
       notes: [],
     });
     expect(unknown.verdict).toBe("inconclusive");
+
+    const alteredReference = await client.review({
+      protocolVersion: 1,
+      requestId: "r-altered",
+      documentVersion: 1,
+      source: FIB_SOURCE,
+      ir: `${FIB_IR}\n; changed module`,
+      notes: [],
+    });
+    expect(alteredReference.verdict).toBe("inconclusive");
   });
 });

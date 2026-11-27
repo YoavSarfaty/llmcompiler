@@ -11,6 +11,7 @@ import type {
 } from "../types/protocol.ts";
 import { FIB_IR, rangeOf } from "./fibFixture.ts";
 import type { RawMapping } from "../compiler/mappingResolver.ts";
+import { injectTarget } from "../compiler/target.ts";
 
 /**
  * Deterministic stand-in for the local model (decisions.md D-09).
@@ -173,7 +174,8 @@ export class MockLlmClient implements LlmClient {
   }
 
   async review(request: ReviewRequest): Promise<ReviewPayload> {
-    const known = request.ir.includes("define i64 @fib(") && isReferenceProgram(request.source);
+    const knownIr = request.ir === FIB_IR || request.ir === injectTarget(FIB_IR).ir;
+    const known = knownIr && isReferenceProgram(request.source);
     return {
       protocolVersion: 1,
       schemaVersion: 1,

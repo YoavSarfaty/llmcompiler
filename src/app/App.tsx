@@ -170,6 +170,13 @@ export function App() {
     });
   }
 
+  function handleSourceChange(nextSource: string) {
+    // Invalidate in-flight responses during the editor event, before React's
+    // effect cleanup runs, so an old result cannot win this render boundary.
+    requestCounter.current += 1;
+    setSource(nextSource);
+  }
+
   function resizePanels(clientX: number, container: HTMLElement | null) {
     if (!container) return;
     const bounds = container.getBoundingClientRect();
@@ -266,7 +273,7 @@ export function App() {
           </div>
           <SourceEditor
             initialDoc={FIB_SOURCE}
-            onChange={setSource}
+            onChange={handleSourceChange}
             onCursorOffset={setCursorOffset}
             onHoverOffset={setHoverOffset}
             onClickOffset={pinSourceOffset}
