@@ -1,7 +1,8 @@
-import { hasErrors, type Diagnostic } from "../types/diagnostics.ts";
+import { diagnostic, hasErrors, type Diagnostic } from "../types/diagnostics.ts";
 import type { CompileRequest, LlmClient, Note, ReviewPayload } from "../types/protocol.ts";
 import { VERSIONS } from "../types/protocol.ts";
 import { LIMITS } from "./limits.ts";
+import { StageTimeoutError, withStageTimeout } from "./timeout.ts";
 import { checkSourceLimits } from "./sourceRanges.ts";
 import { validateCompilePayload } from "./validateResult.ts";
 import { injectTarget } from "./target.ts";
@@ -21,6 +22,8 @@ export interface CompileInput {
   documentVersion: number;
   requestId: string;
   client: LlmClient;
+  /** Override stage deadlines in tests; production uses the published limits. */
+  timeouts?: { generationMs?: number; reviewMs?: number };
 }
 
 export interface CompileOutput {
@@ -32,6 +35,25 @@ export interface CompileOutput {
   review: ReviewPayload | null;
   timings: Record<string, number>;
   succeeded: boolean;
+}
+
+function inconclusiveReview(input: CompileInput): ReviewPayload {
+  return {
+    protocolVersion: VERSIONS.protocol,
+    schemaVersion: VERSIONS.schema,
+    requestId: input.requestId,
+    documentVersion: input.documentVersion,
+    verdict: "inconclusive",
+    checks: {
+      controlFlow: "unknown",
+      dataFlow: "unknown",
+      typesAndConversions: "unknown",
+      sideEffects: "unknown",
+      ioBehaviour: "unknown",
+      termination: "unknown",
+    },
+    findings: [],
+  };
 }
 
 const emptyDependencies = () => ({ functions: [], globals: [], runtime: [] });
@@ -85,7 +107,29 @@ export async function runCompilation(input: CompileInput): Promise<CompileOutput
   }
 
   // S1 --- generation
-  const outcome = await input.client.compile(buildRequest(input));
+  const generationStarted = Date.now();
+  let outcome;
+  try {
+    outcome = await withStageTimeout(
+      input.client.compile(buildRequest(input)),
+      input.timeouts?.generationMs ?? LIMITS.generationTimeoutMs,
+      "generation",
+    );
+  } catch (error) {
+    const timedOut = error instanceof StageTimeoutError;
+    diagnostics.push(
+      diagnostic(timedOut ? "E015" : "E012", {
+        stage: "generation",
+        message: timedOut ? "Generation stage timed out." : "Model client failed during generation.",
+        details: error instanceof Error ? error.message : String(error),
+      }),
+    );
+    return {
+      ...empty,
+      diagnostics,
+      timings: { intake: generationStarted - started, generation: Date.now() - generationStarted },
+    };
+  }
   const validated = validateCompilePayload(outcome.payload);
   if (!validated.value) {
     diagnostics.push(...validated.diagnostics);
@@ -137,16 +181,28 @@ export async function runCompilation(input: CompileInput): Promise<CompileOutput
   // S9 --- review (dispatched after IR exists; gates execution only)
   let review: ReviewPayload | null = null;
   try {
-    review = await input.client.review({
-      protocolVersion: VERSIONS.protocol,
-      requestId: input.requestId,
-      documentVersion: input.documentVersion,
-      source: input.source,
-      ir: injected.ir,
-      notes: payload.notes ?? [],
-    });
-  } catch {
-    review = null;
+    review = await withStageTimeout(
+      input.client.review({
+        protocolVersion: VERSIONS.protocol,
+        requestId: input.requestId,
+        documentVersion: input.documentVersion,
+        source: input.source,
+        ir: injected.ir,
+        notes: payload.notes ?? [],
+      }),
+      input.timeouts?.reviewMs ?? LIMITS.reviewTimeoutMs,
+      "review",
+    );
+  } catch (error) {
+    review = inconclusiveReview(input);
+    diagnostics.push(
+      diagnostic("W003", {
+        stage: "review",
+        message: error instanceof StageTimeoutError
+          ? "Semantic review timed out; its verdict is inconclusive."
+          : "Semantic review could not complete; its verdict is inconclusive.",
+      }),
+    );
   }
 
   const instructions = allInstructions(validation.module);
