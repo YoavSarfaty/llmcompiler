@@ -17,7 +17,7 @@ function compileStatus(state: CompileOutput | null, busy: boolean): { label: str
   if (busy) return { label: "Compiling", tone: "busy" };
   if (!state) return { label: "Ready", tone: "idle" };
   if (hasErrors(state.diagnostics)) return { label: "Compilation failed", tone: "error" };
-  if (state.succeeded) return { label: "IR valid", tone: "ok" };
+  if (state.succeeded) return { label: "IR checks passed · LLVM unavailable", tone: "ok" };
   return { label: "Ready", tone: "idle" };
 }
 
