@@ -20,21 +20,23 @@ export function Console({ diagnostics }: ConsoleProps) {
   return (
     <div className="console">
       <div className="console-header">
-        <button onClick={handleClear} className="badge warn">Clear</button>
+        <button type="button" onClick={handleClear} className="badge warn" aria-label="Clear console output">
+          Clear
+        </button>
         <span className="muted">Log:</span>
       </div>
-      <pre className="console-log">{log}</pre>
+      <pre className="console-log" role="log" aria-live="polite">{log}</pre>
       <div className="console-items">
         {diagnostics.map((d, i) => (
-          <div
+          <button
             key={i}
             className={`diagnostic ${d.severity}`}
-            style={{ cursor: 'pointer' }}
+            type="button"
             onClick={() => logDiagnostic(d)}
           >
             <span className="code">{d.code}</span>
             <span className="message">{d.message}</span>
-          </div>
+          </button>
         ))}
       </div>
     </div>

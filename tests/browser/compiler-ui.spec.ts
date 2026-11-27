@@ -45,3 +45,19 @@ test("resizes the desktop panes with the keyboard", async ({ page }) => {
   await page.keyboard.press("ArrowRight");
   await expect(divider).toHaveAttribute("aria-valuenow", String(before + 5));
 });
+
+test("supports keyboard interaction with console diagnostics", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("textbox").fill("Make me a Fibonacci program.");
+  await expect(page.getByText("Compilation failed", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Console" }).click();
+
+  const promptDiagnostic = page.getByRole("button", { name: /E001/ });
+  await promptDiagnostic.focus();
+  await page.keyboard.press("Enter");
+  const log = page.getByRole("log");
+  await expect(log).toContainText("E001");
+
+  await page.getByRole("button", { name: "Clear console output" }).click();
+  await expect(log).toBeEmpty();
+});
