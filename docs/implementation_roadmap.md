@@ -1,79 +1,154 @@
 # Implementation Roadmap --- Browser-Based AI Compiler
 
 **Goal:** Deliver a language-agnostic, browser-only AI compiler hosted
-on GitHub Pages.
+on GitHub Pages.\
+**Normative reference:** `compiler-specification.md`\
+**Locked decisions:** `decisions.md`
 
 ## 1. Delivery strategy
 
-Build the project in vertical slices, proving the most technically
-uncertain parts early.
+Build the project in vertical slices, and prove the uncertain parts with
+working code rather than with design.
 
-The highest-risk requirement is running a real LLVM toolchain entirely
-in the browser. Prove that before investing heavily in the UI or
-incremental AI workflow.
+Three risks dominate:
 
-The second major risk is whether a small quantized local model can
-reliably translate unfamiliar user-written code directly into LLVM IR.
+1.  **A real LLVM toolchain in the browser.** Nothing else matters if
+    this fails.
+2.  **A small local model producing valid LLVM IR in a pinned dialect.**
+    This is unusual enough that public code benchmarks do not predict
+    it.
+3.  **A patch protocol that is safe enough to enable.** A wrong
+    localized update is worse than a slow full compile.
+
+The first two are resolved in Phase 0. The third is deferred until a
+full-module baseline exists to compare against (D-11).
 
 No server, backend, database, account system, or generated test suite is
-included in the plan.
+part of the product. The project itself is tested (D-09).
+
+Every phase ends with an exit criterion that is observable, not a
+judgement call.
 
 ## 2. Phase 0 --- Technical feasibility spikes
 
-**Objective:** Establish that the two core technologies work within the
-browser constraints.
+**Objective:** Establish, with two working prototypes and measured
+numbers, that the two core technologies work inside browser
+constraints, and choose a toolchain packaging.
 
-### Work items
+### 2.1 Prerequisites
 
-1.  Create a minimal Vite + TypeScript project.
-2.  Create a GitHub Pages deployment workflow.
-3.  Build or obtain a reproducible browser-compatible LLVM toolchain.
-4.  Parse and verify a small LLVM IR module in the browser.
-5.  Compile the IR to a WebAssembly module.
-6.  Link the module with a minimal custom runtime ABI.
-7.  Execute the module using the browser's native WebAssembly API.
-8.  Load WebLLM in a dedicated worker.
-9.  Run a small local instruction model on a supported WebGPU device.
-10. Measure model and compiler memory use, startup time, and asset
-    sizes.
+0.  The document baseline is in place: this file,
+    `high_level_design.md`, `compiler-specification.md`,
+    `low_level_design.md`, `decisions.md`. No Phase 0 work starts
+    before the specification exists, because the spike must be measured
+    against a contract.
 
-### Exit criteria
+### 2.2 Work items
 
--   A static GitHub Pages deployment works.
--   No application server is used.
--   A real LLVM toolchain processes LLVM IR in the browser.
--   A generated WASM module executes in the browser.
--   Local LLM inference works without a remote inference endpoint.
+1.  Create a minimal Vite + TypeScript project and a GitHub Pages
+    deployment workflow.
+2.  Build the **Track A** toolchain: `opt`, `llc`, `wasm-ld` compiled
+    for `wasm32-wasip1`, running under a WASI shim in a Web Worker with
+    a virtual filesystem.
+3.  Build the **Track B** toolchain: `libLLVM` plus a C driver, with
+    LLD's wasm linker in-process through a C shim.
+4.  Assemble the pinned `wasi-libc` sysroot and verify it links against
+    the reference IR.
+5.  Implement the developer IR harness (`dev/IrHarness.ts`) and use it
+    for every toolchain experiment.
+6.  Implement the subset checker and ABI checker against the
+    specification's tables, and confirm they catch the fixtures before
+    LLVM does.
+7.  Verify, compile and link the reference Fibonacci IR through both
+    tracks; execute it with stdin `10` and confirm `89`.
+8.  Load WebLLM in a dedicated worker and run one small candidate model
+    on a WebGPU device.
+9.  Have that model translate the Fibonacci pseudocode to IR that passes
+    the pipeline, without any network call after the model is loaded.
+10. Measure the metrics in §2.4 for both tracks and record them.
+11. Record the resulting decision in `decisions.md` (D-01, O-04).
 
-### Go/no-go decision
+### 2.3 Reference artifacts
 
-Do not proceed to the full product implementation until both the
-LLVM-in-browser and local-model feasibility spikes have succeeded.
+-   `fixtures/ir/fib.ll` --- the reference module from
+    `compiler-specification.md` §9 (T02).
+-   `fixtures/source/fib.txt` --- the Fibonacci pseudocode from the
+    high-level design.
+-   The ABI prelude block from `compiler-specification.md` §3.5.
 
-If the LLVM build is impractical, revisit the exact toolchain packaging
-and build configuration before considering alternatives to real LLVM.
+### 2.4 Measurements
+
+Record, per track, in a checked-in results file:
+
+| Metric               | Notes                                                    |
+| -------------------- | -------------------------------------------------------- |
+| Bundle size          | Uncompressed and brotli, toolchain assets only            |
+| Cold start           | Worker spawn to first successful parse, median of 5       |
+| Compile latency      | 200-line module, `-O0` and `-O2`, median of 20            |
+| Peak memory          | Stress module, plus browser-reported figure where available |
+| Diagnostic fidelity  | Induced failures classified correctly, out of 8          |
+| Implementation effort| Engineer-days to reach the contract                       |
+| Maintenance risk     | Patch count, LLVM bump difficulty, upstream breakage      |
+
+The eight induced failures: bad syntax, type mismatch, undefined
+symbol, duplicate symbol, typed pointer, missing `main`, bad flag, and
+oversized module.
+
+### 2.5 Exit criteria
+
+-   A static GitHub Pages deployment works with no application server.
+-   A real LLVM toolchain processes LLVM IR in the browser, from both
+    tracks.
+-   The reference module links against `wasi-libc` and produces a
+    `.wasm`.
+-   The module executes in the browser, reads `10` from stdin and prints
+    `89`.
+-   Local LLM inference works with no remote endpoint.
+-   The model's IR passes the subset checker, the ABI checker and the
+    verifier at least once, end to end.
+-   Metrics are recorded for both tracks and D-01 is resolved.
+
+### 2.6 Go/no-go
+
+Do not proceed to product implementation until both the toolchain and
+the model spikes succeed and D-01 is decided. If the LLVM build proves
+impractical in both packagings, revisit packaging before considering any
+alternative to real LLVM --- but note that replacing LLVM changes the
+product's definition, not just its implementation.
+
+If the model cannot produce valid IR at all, that is a finding, not a
+failure of the spike: record it, try a second candidate, and escalate
+before building UI.
 
 ## 3. Phase 1 --- Minimal end-to-end compiler
 
-**Objective:** Demonstrate the central product idea.
+**Objective:** Demonstrate the central product idea with the contract
+fully implemented and no UI polish.
 
-### Work items
+### 3.1 Work items
 
-1.  Build a minimal source editor using CodeMirror 6.
-2.  Add a local WebLLM worker.
-3.  Define a strict, versioned JSON compiler response schema.
-4.  Implement prompt-only input rejection.
-5.  Instruct the LLM to translate supplied code directly into LLVM IR.
-6.  Include semantic verification in the LLM compilation contract.
-7.  Parse and verify returned IR using LLVM.
-8.  Compile verified IR to WASM.
-9.  Implement the custom runtime ABI.
-10. Add a basic browser console with input, output, errors, and exit
-    status.
+1.  Build a minimal source editor with CodeMirror 6.
+2.  Implement `PromptBuilder` with versioned sections and the ABI
+    prelude from the specification.
+3.  Implement schema validation, normalization and bounded repair
+    (specification §4.2, §4.6).
+4.  Implement prompt-only rejection and pin it with fixtures.
+5.  Implement the two-stage flow: generation, then semantic review
+    (D-10).
+6.  Implement the subset checker and ABI checker as first-class
+    components.
+7.  Implement the toolchain adapter for the winning track.
+8.  Implement the WASI import allowlist and the execution worker.
+9.  Implement the console with stdin, stdout, stderr, exit status and
+    limits.
+10. Implement the compilation state model from specification §1.2:
+    versions, staleness, and the rule that a failed compile does not
+    erase the last good IR.
+11. Implement `MockLlmClient` and the fixture corpus (D-09).
+12. Stand up CI: typecheck, unit, golden IR, model-response, browser
+    integration.
 
-### Initial demonstration program
-
-Use the Fibonacci example:
+### 3.2 Initial demonstration program
 
 ``` text
 Make a function called fib:
@@ -86,96 +161,111 @@ Take user input number
 Print fib of user input
 ```
 
-The compiler must interpret this as user-supplied pseudocode.
+The compiler must interpret this as user-supplied pseudocode. The base
+cases return `1`; input `10` produces `89`.
 
-The base cases return `1`; therefore input `10` produces `89`.
+### 3.3 Exit criteria
 
-### Exit criteria
-
-A user can enter the example, obtain LLVM IR from the local model, have
-LLVM verify and compile it, enter `10` in the console, and see `89`.
-
-A request such as `Make me a Fibonacci program` must produce a
-source-input error rather than generated code.
+-   A user can enter the example, obtain IR from the local model, have
+    it pass the subset check, the ABI check and LLVM verification, have
+    it link, enter `10` and see `89`.
+-   Semantic review runs as a separate stage and its verdict is
+    displayed with the specified wording.
+-   `Make me a Fibonacci program` produces `E001` and no IR.
+-   Every diagnostic code in the specification has at least one
+    fixture.
+-   CI passes with the mock model and with the real toolchain worker.
+-   The developer IR harness reproduces the same result without the
+    model.
 
 ## 4. Phase 2 --- Product interface
 
 **Objective:** Turn the prototype into a usable compiler playground.
 
-### Work items
+### 4.1 Work items
 
 1.  Implement responsive desktop and mobile layouts.
-2.  Add a read-only LLVM IR viewer.
-3.  Add LLVM syntax highlighting.
-4.  Add compiler diagnostics with source locations.
-5.  Add loading and compilation states.
-6.  Add execution status and runtime error display.
-7.  Add resizable desktop panels.
-8.  Add mobile source/IR tabs and a console drawer.
-9.  Add model loading and hardware compatibility screens.
-10. Ensure inference and compilation never block the UI thread.
+2.  Add a read-only LLVM IR viewer with syntax highlighting.
+3.  Add diagnostics with source and IR locations, including the rule
+    that parse failures never get a guessed source range.
+4.  Add all UI states from the low-level design, including *stale*,
+    *review inconclusive* and *device unsupported*.
+5.  Add execution status, trap display and the truncation notice.
+6.  Add resizable desktop panels and mobile tabs.
+7.  Add model loading with progress and download size, and hardware
+    compatibility screens.
+8.  Add the "copy diagnostic bundle" action (versions, codes, timings;
+    never source).
+9.  Ensure inference and compilation never block the UI thread.
+10. Add the limitations/about view required by specification §5.5.
 
-### Exit criteria
+### 4.2 Exit criteria
 
-The interface is usable on desktop and mobile, with source editing, IR
-inspection, diagnostics, and execution.
-
-The LLVM IR cannot be edited by the user.
+-   The interface is usable on desktop and mobile with source editing,
+    IR inspection, diagnostics and execution.
+-   The LLVM IR cannot be edited.
+-   No label violates specification §5.4.
+-   A failed compile leaves the last good IR visible and marked stale.
+-   Keyboard-only operation works for the editor, IR pane and console.
 
 ## 5. Phase 3 --- Source-to-IR mapping
 
 **Objective:** Implement the Compiler Explorer-style visual feature.
 
-### Work items
+### 5.1 Work items
 
-1.  Define the mapping metadata schema.
-2.  Require the LLM to return source ranges and corresponding IR
-    references.
-3.  Establish stable instruction identifiers scoped to functions and
-    compilation versions.
-4.  Validate mapping references against the generated IR.
-5.  Implement source editor decorations.
-6.  Implement IR viewer decorations.
-7.  Implement source-to-IR hover synchronization.
-8.  Implement IR-to-source hover synchronization.
-9.  Implement click-to-pin mapping selection.
-10. Visually distinguish unmapped and uncertain instructions.
+1.  Implement anchor resolution and drop-with-warning (specification
+    §4.3).
+2.  Assign application-owned instruction identities scoped to
+    `irVersion`.
+3.  Compute the unmapped set in the application.
+4.  Implement source editor decorations.
+5.  Implement IR viewer decorations.
+6.  Implement hover synchronization in both directions.
+7.  Implement click-to-pin selection.
+8.  Distinguish unmapped and low-confidence mappings visually.
+9.  Add mapping fixtures, including duplicate anchors and unresolvable
+    anchors.
 
-### Exit criteria
+### 5.2 Exit criteria
 
-A user can hover over a source statement and see its corresponding LLVM
-instructions highlighted, and vice versa.
+-   Hovering a source statement highlights its IR instructions, and the
+    reverse.
+-   One-to-many and many-to-many mappings work.
+-   An unresolvable anchor produces `W001` and no fabricated highlight.
+-   Unmapped instructions are visually distinct.
 
-The mapping supports one-to-many and many-to-many relationships.
+### 5.3 Implementation note
 
-### Important implementation note
-
-Start with unoptimized IR. Optimization can change instruction
-identities and relationships. An optimized view can be added separately
-after the primary mapping experience works.
+Start with unoptimized IR. Optimization changes instruction identity and
+is a separate, explicitly unmapped view.
 
 ## 6. Phase 4 --- Incremental compilation
 
-**Objective:** Make source edits feel immediate.
+**Objective:** Make a small edit produce a small IR change, safely.
 
-### Work items
+This is a release requirement (R11) and is scheduled after the
+end-to-end loop, per D-11.
 
-1.  Use CodeMirror transactions to detect changed ranges.
-2.  Add debouncing for bursts of typing.
-3.  Introduce document versions and request IDs.
-4.  Store the last successful source, IR, mappings, and dependency
-    information in memory.
-5.  Identify affected functions or regions.
-6.  Send incremental compilation requests to the LLM.
-7.  Define an IR patch response schema.
-8.  Apply patches transactionally.
-9.  Update only affected mappings.
-10. Reject stale responses.
-11. Expand recompilation to dependent functions when necessary.
-12. Fall back to full translation when a safe localized update cannot be
-    determined.
+### 6.1 Work items
 
-### Demonstration
+1.  Detect changed ranges from CodeMirror transactions.
+2.  Debounce at 500 ms.
+3.  Map changed ranges to functions using existing mappings.
+4.  Implement the dependency-aware planner with the expansion rules in
+    the low-level design §5.3.
+5.  Record parser spans for functions, globals and declarations.
+6.  Implement the patch schema and validation.
+7.  Implement span-based splicing with byte-for-byte preservation of
+    untouched text.
+8.  Re-verify the spliced module and discard on failure with `W008`,
+    then fall back to full compilation.
+9.  Preserve mappings and identities for untouched functions.
+10. Re-run semantic review for patches that change behaviour.
+11. Reject stale responses and cancel superseded requests.
+12. Add fixtures for each patch operation and each fallback path.
+
+### 6.2 Demonstration
 
 Original:
 
@@ -189,199 +279,224 @@ Edited:
 return fib(x-1) + fib(x-3)
 ```
 
-Expected behavior: - Detect the changed source range. - Send the changed
-function and relevant context to the local model. - Update the affected
-LLVM instructions. - Preserve unaffected module content. - Refresh the
-relevant mapping. - Avoid applying obsolete inference responses.
+Expected: the changed range is detected, only `fib` is regenerated, the
+patch is spliced, re-verified and re-reviewed, unaffected module content
+and mappings are preserved, and no obsolete response is applied.
 
-### Exit criteria
+### 6.3 Exit criteria
 
-A local edit updates only the affected IR region when safe. Changes with
-broader dependencies trigger the required expanded update or full
-compilation.
+-   A local edit updates only the affected IR region when safe.
+-   An edit with wider dependencies triggers expansion or full
+    compilation, and says so (`W004`).
+-   A failed patch never becomes a visible result.
+-   Latency for a one-line edit is measurably below a full compile on
+    the same device, and the measurement is recorded.
 
 ## 7. Phase 5 --- Reliability and compatibility
 
 **Objective:** Make the compiler robust across supported devices and
-inputs.
+inputs, with evidence.
 
-### Work items
+### 7.1 Work items
 
-1.  Benchmark candidate quantized local models.
-2.  Evaluate known-language, pseudocode, assembly, mixed-notation, and
-    invented-syntax examples.
-3.  Evaluate semantic preservation and structured error compliance.
-4.  Add bounded internal repair for invalid generated IR.
-5.  Add explicit error categories and stable error codes.
-6.  Add compilation timeouts and cancellation.
-7.  Add execution time and resource limits.
-8.  Check browser and WebGPU compatibility.
-9.  Provide smaller-model options for constrained devices.
-10. Measure memory use and download size.
-11. Pin compiler and model versions.
-12. Validate static deployment paths and asset integrity.
+1.  Run the model benchmark (D-06) over the candidate set and
+    quantizations; record results.
+2.  Evaluate known-language, pseudocode, assembly, mixed-notation and
+    invented-syntax corpora.
+3.  Measure review agreement: how often review catches a deliberately
+    wrong IR, and how often it rejects a correct one.
+4.  Tune bounded repair using measured failure classes.
+5.  Verify every diagnostic code is reachable and correctly mapped.
+6.  Add compile timeouts and cancellation across all stages.
+7.  Verify execution limits and worker replacement under load.
+8.  Establish the supported device matrix (O-05).
+9.  Provide smaller-model variants for constrained devices.
+10. Measure memory and download size on each supported device class.
+11. Pin compiler, sysroot and model versions; publish hashes.
+12. Validate the deployed Pages build and asset integrity.
 
-### Exit criteria
+### 7.2 Exit criteria
 
-The application reports unsupported or ambiguous inputs honestly, does
-not silently change program semantics, and does not hang the editor or
-browser when inference or execution takes too long.
-
-No generated unit-test suite is introduced. LLVM structural verification
-and LLM semantic verification remain the compilation checks.
+-   The application reports unsupported or ambiguous input honestly.
+-   It does not silently change program semantics.
+-   It does not hang the editor or the browser when inference or
+    execution exceeds its limits.
+-   Benchmark and device-matrix results are checked in.
+-   No generated unit-test suite is part of the pipeline; LLVM
+    verification and semantic review remain the compilation checks.
 
 ## 8. Phase 6 --- Release preparation
 
 **Objective:** Publish a reproducible, self-contained static
 application.
 
-### Work items
+### 8.1 Work items
 
-1.  Finalize the GitHub Actions deployment workflow.
-2.  Configure Vite's GitHub Pages base path.
-3.  Version compiler and model assets.
-4.  Document model downloads and license requirements.
-5.  Document browser and hardware requirements.
-6.  Confirm no source or IR is uploaded.
-7.  Confirm there is no application backend or database.
-8.  Verify the application works from the deployed GitHub Pages URL.
-9.  Provide a clear first-run model download experience.
-10. Document known limitations of local inference and semantic
-    verification.
+1.  Finalize the Pages deployment workflow and Vite base path.
+2.  Version compiler, sysroot and model assets; publish SHA-256 hashes.
+3.  Document model downloads and license obligations (O-02).
+4.  Document browser and hardware requirements (O-05).
+5.  Confirm no source or IR is uploaded, and that no telemetry exists.
+6.  Confirm there is no application backend or database.
+7.  Verify the application works from the deployed URL, including a
+    cold cache and an offline-after-cache run.
+8.  Provide a clear first-run model download experience.
+9.  Document known limitations of local inference and semantic review.
+10. Add the repository `LICENSE` and product naming (O-01).
 
-### Exit criteria
+### 8.2 Exit criteria
 
 The application can be deployed and used from GitHub Pages without
-operating an application server.
+operating an application server, and every claim it makes about
+verification is accurate.
 
 ## 9. Suggested repository structure
 
 ``` text
-ai-compiler/
+llmcompiler/
   public/
     assets/
-      llvm/
-      runtime/
+      llvm/            # toolchain wasm (or fetched from the asset host)
+      sysroot/         # wasi-libc sysroot
   src/
     app/
     editor/
     ir/
     compiler/
+    toolchain/
     workers/
     runtime/
     model/
+      prompts/
+    dev/
     types/
+  fixtures/
+    ir/
+    model/
+    source/
+  tests/
+    unit/
+    golden/
+    browser/
   scripts/
     build-llvm-wasm/
     package-assets/
+    fetch-assets/
   docs/
-    high-level-design.md
-    low-level-design.md
-    implementation-roadmap.md
+    high_level_design.md
+    compiler-specification.md
+    low_level_design.md
+    implementation_roadmap.md
+    decisions.md
   .github/
     workflows/
+      ci.yml
       deploy.yml
+      toolchain-release.yml
   index.html
   package.json
   tsconfig.json
   vite.config.ts
 ```
 
-Large model weights need not live in the Git repository. They can be
-fetched as static assets and cached locally by the browser. This does
-not require a backend, but the distribution source and model license
-must be documented.
+Large model weights do not live in the repository. They are fetched as
+static assets from the external host (D-07), verified by hash, and
+cached by the browser. The distribution source and model license must be
+documented.
 
 ## 10. Prioritization
 
-  -----------------------------------------------------------------------
-  Priority                Work                    Why
-  ----------------------- ----------------------- -----------------------
-  P0                      LLVM compiled for       Fundamental feasibility
-                          browser                 
-
-  P0                      Local WebLLM inference  Fundamental privacy and
-                                                  deployment requirement
-
-  P1                      Direct source-to-IR     Core product behavior
-                          translation             
-
-  P1                      WASM linking and        Completes the compiler
-                          execution               loop
-
-  P1                      Compiler error protocol Required compiler
-                                                  behavior
-
-  P2                      Read-only IR viewer     Core user experience
-
-  P2                      Source-to-IR mapping    Distinctive product
-                                                  feature
-
-  P3                      Incremental compilation Responsiveness and
-                                                  usability
-
-  P4                      Optimized IR view       Advanced inspection
-                                                  feature
-
-  P4                      Broader device/model    Product maturity
-                          support                 
-  -----------------------------------------------------------------------
+| Priority | Work                                    | Why                                        |
+| -------- | --------------------------------------- | ------------------------------------------ |
+| P0       | LLVM compiled for browser (two tracks)  | Fundamental feasibility                    |
+| P0       | Local WebLLM inference                  | Fundamental privacy and deployment requirement |
+| P0       | Specification artifacts: prompt, schema, ABI prelude, subset | The compiler contract is the product |
+| P0       | Test harness with mock model and fixtures | Nothing is verifiable without it          |
+| P1       | Direct source-to-IR translation         | Core product behaviour                     |
+| P1       | WASM linking and execution with WASI    | Completes the compiler loop                |
+| P1       | Compiler error protocol                 | Required compiler behaviour                |
+| P1       | Two-stage semantic review               | Required honesty mechanism                 |
+| P2       | Read-only IR viewer                     | Core user experience                       |
+| P2       | Source-to-IR mapping                    | Distinctive product feature                |
+| P3       | Incremental compilation                 | Responsiveness; release requirement        |
+| P4       | Optimized IR view                       | Advanced inspection                        |
+| P4       | Broader device and model support        | Product maturity                           |
 
 ## 11. Key risks and decision gates
 
 ### Risk A: LLVM toolchain size and browser compatibility
 
-**Decision gate:** Demonstrate IR verification, WebAssembly code
-generation, and linking in a browser before full implementation.
+**Decision gate:** both tracks demonstrate IR verification, code
+generation and linking in a browser, with measurements recorded, before
+full implementation. D-01 is resolved here.
 
 ### Risk B: Local model quality
 
-**Decision gate:** Benchmark actual compiler tasks, especially
-unfamiliar syntax and incremental changes. Do not select a model solely
-by parameter count.
+**Decision gate:** benchmark actual compiler tasks, especially
+unfamiliar syntax and incremental changes. Do not select a model by
+parameter count or public benchmark ranking.
 
 ### Risk C: Incremental translation correctness
 
-**Decision gate:** Ensure dependency tracking and transactional updates
-exist before enabling localized patches by default. Fall back to full
-compilation whenever necessary.
+**Decision gate:** dependency tracking, span-based splicing and
+transactional application must exist, and every fallback path must have
+a fixture, before incremental is enabled by default.
 
-### Risk D: Semantic verification limitations
+### Risk D: Semantic review value
 
-**Decision gate:** Keep model verification distinct from LLVM structural
-verification. Never label an LLM assessment as a formal proof.
+**Decision gate:** measure whether review catches deliberately wrong IR
+and how often it rejects correct IR. If it is not better than a coin
+flip, say so in the product rather than presenting it as a safeguard.
 
 ### Risk E: Hardware variation
 
-**Decision gate:** Establish supported device profiles and clear startup
+**Decision gate:** establish supported device profiles and startup
 compatibility checks. Never silently fall back to remote inference.
+
+### Risk F: GitHub Pages limits
+
+**Decision gate:** confirm that the shell fits Pages limits and that
+bulk assets load from the external host with correct hashes and caching
+before Phase 2 polish.
 
 ## 12. Definition of done
 
 The product is ready for its first public release when:
 
 -   It is hosted on GitHub Pages.
--   It requires no application backend or database.
+-   It requires no application backend or database, and has no
+    telemetry.
 -   The user supplies code rather than a program-generation prompt.
--   The source can use real, invented, mixed, or pseudocode syntax.
+-   Source can use real, invented, mixed or pseudocode syntax.
 -   A local LLM translates source directly into LLVM IR.
 -   The LLM returns structured compiler errors rather than asking
     questions.
--   LLVM verifies and compiles the generated IR.
--   The resulting WASM executes in the browser.
+-   The IR passes the subset checker, the ABI checker and LLVM
+    verification.
+-   The resulting WASM executes in the browser with working stdin and
+    stdout.
+-   Semantic review runs independently and the interface uses the
+    specified wording.
 -   The LLVM IR is visible and read-only.
--   Source-to-IR highlighting works.
--   Incremental edits update affected IR safely.
+-   Source-to-IR highlighting works, with unmapped instructions
+    distinguished.
+-   Incremental edits update the affected IR safely, with full
+    recompilation as fallback.
+-   All published limits are enforced and reported.
 -   The application is responsive.
--   Source code, IR, and execution data remain local.
+-   Source code, IR and execution data remain local.
+-   The test suite passes in CI without a GPU and without the real
+    model.
 
 ## 13. First milestone
 
-The first concrete milestone should be deliberately small:
+The first concrete milestone is deliberately small:
 
 **A static GitHub Pages application that loads a local model, accepts
-the Fibonacci pseudocode example, generates LLVM IR, verifies it with
-real LLVM, compiles it to WASM, and executes it in the browser.**
+the Fibonacci pseudocode example, generates LLVM IR, passes the subset
+and ABI checks, verifies the IR with real LLVM, links it against
+`wasi-libc`, executes it in the browser, prints `89`, and shows a
+semantic review verdict --- all inside the browser.**
 
 Only after this complete loop works should the project invest in
-advanced mapping, incremental compilation, and interface polish.
+mapping, incremental compilation and interface polish.
