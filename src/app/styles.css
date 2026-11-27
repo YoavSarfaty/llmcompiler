@@ -239,6 +239,20 @@ button:focus-visible {
   height: 100%;
 }
 
+.editor-host .source-map-range {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.editor-host .source-map-range.source-map-low {
+  text-decoration: underline dotted var(--warn);
+  text-underline-offset: 2px;
+}
+
+.editor-host .source-map-range.source-map-active {
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+}
+
 .ir-view {
   flex: 1;
   min-height: 0;
@@ -257,6 +271,24 @@ button:focus-visible {
 
 .ir-row.selected {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.ir-row[role="button"] {
+  cursor: pointer;
+}
+
+.ir-row[role="button"]:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.ir-row.unmapped {
+  background: color-mix(in srgb, var(--muted) 6%, transparent);
+}
+
+.ir-row.low-confidence .ir-text {
+  text-decoration: underline dotted var(--warn);
+  text-underline-offset: 2px;
 }
 
 .ir-lineno {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { SourceEditor } from "../editor/SourceEditor.tsx";
+import { SourceEditor, type SourceHighlight } from "../editor/SourceEditor.tsx";
 import { IRViewer } from "../ir/IRViewer.tsx";
 import { MockLlmClient } from "../model/MockLlmClient.ts";
 import { FIB_SOURCE } from "../model/fibFixture.ts";
@@ -47,7 +47,10 @@ export function App() {
   const [lastSuccessfulSource, setLastSuccessfulSource] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
   const [cursorOffset, setCursorOffset] = useState(0);
+  const [hoverOffset, setHoverOffset] = useState<number | null>(null);
+  const [hoveredInstructionId, setHoveredInstructionId] = useState<string | null>(null);
   const [pinnedLines, setPinnedLines] = useState<number[]>([]);
+  const [pinnedInstructionIds, setPinnedInstructionIds] = useState<Set<string>>(() => new Set());
   const [tab, setTab] = useState<"diagnostics" | "console">("diagnostics");
   const [aboutOpen, setAboutOpen] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState("");
@@ -72,6 +75,7 @@ export function App() {
         }
         setBusy(false);
         setPinnedLines([]);
+        setPinnedInstructionIds(new Set());
       });
     }, LIMITS.debounceMs);
     return () => window.clearTimeout(timer);
@@ -80,22 +84,43 @@ export function App() {
   const displayState = state?.succeeded ? state : lastSuccessfulState;
   const hasStaleIr = Boolean(displayState?.ir && (busy || source !== lastSuccessfulSource));
 
+  const activeMappings = useMemo(() => {
+    if (!displayState || hasStaleIr) return [];
+    return displayState.mappings.filter((mapping) => {
+      const sourceActive = mapping.sourceRanges.some((range) =>
+        [cursorOffset, hoverOffset].some((offset) => offset !== null && offset >= range.from && offset < range.to),
+      );
+      const instructionActive = mapping.instructionIds.some(
+        (id) => id === hoveredInstructionId || pinnedInstructionIds.has(id),
+      );
+      return sourceActive || instructionActive;
+    });
+  }, [displayState, hasStaleIr, cursorOffset, hoverOffset, hoveredInstructionId, pinnedInstructionIds]);
+
+  const sourceHighlights = useMemo<SourceHighlight[]>(() => {
+    if (!displayState || hasStaleIr) return [];
+    const activeSemanticIds = new Set(activeMappings.map((mapping) => mapping.semanticId));
+    return displayState.mappings.flatMap((mapping) =>
+      mapping.sourceRanges.map((range) => ({
+        range,
+        confidence: mapping.confidence,
+        active: activeSemanticIds.has(mapping.semanticId),
+      })),
+    );
+  }, [displayState, hasStaleIr, activeMappings]);
+
   const selectedIds = useMemo(() => {
     const ids = new Set<string>();
     if (!displayState || hasStaleIr) return ids;
-    for (const mapping of displayState.mappings) {
-      const underCursor = mapping.sourceRanges.some(
-        (range) => cursorOffset >= range.from && cursorOffset < range.to,
-      );
-      if (underCursor) {
-        for (const id of mapping.instructionIds) ids.add(id);
-      }
+    for (const mapping of activeMappings) {
+      for (const id of mapping.instructionIds) ids.add(id);
     }
     for (const instruction of displayState.instructions) {
       if (pinnedLines.includes(instruction.line)) ids.add(instruction.id);
     }
+    for (const id of pinnedInstructionIds) ids.add(id);
     return ids;
-  }, [displayState, hasStaleIr, cursorOffset, pinnedLines]);
+  }, [displayState, hasStaleIr, activeMappings, pinnedLines, pinnedInstructionIds]);
 
   const status = compileStatus(state, busy);
   const review = reviewStatus(state?.review ?? null);
@@ -116,6 +141,32 @@ export function App() {
     } catch {
       setCopyFeedback("Clipboard access is unavailable in this browser context.");
     }
+  }
+
+  function togglePinnedInstruction(instructionId: string) {
+    setPinnedInstructionIds((current) => {
+      const next = new Set(current);
+      if (next.has(instructionId)) next.delete(instructionId);
+      else next.add(instructionId);
+      return next;
+    });
+  }
+
+  function pinSourceOffset(offset: number) {
+    if (!displayState || hasStaleIr) return;
+    const mappedIds = displayState.mappings
+      .filter((mapping) => mapping.sourceRanges.some((range) => offset >= range.from && offset < range.to))
+      .flatMap((mapping) => mapping.instructionIds);
+    if (mappedIds.length === 0) return;
+    setPinnedInstructionIds((current) => {
+      const next = new Set(current);
+      const shouldUnpin = mappedIds.every((id) => next.has(id));
+      for (const id of mappedIds) {
+        if (shouldUnpin) next.delete(id);
+        else next.add(id);
+      }
+      return next;
+    });
   }
 
   return (
@@ -202,7 +253,14 @@ export function App() {
             <h2>Source</h2>
             <span className="muted">{source.length} chars</span>
           </div>
-          <SourceEditor initialDoc={FIB_SOURCE} onChange={setSource} onCursorOffset={setCursorOffset} />
+          <SourceEditor
+            initialDoc={FIB_SOURCE}
+            onChange={setSource}
+            onCursorOffset={setCursorOffset}
+            onHoverOffset={setHoverOffset}
+            onClickOffset={pinSourceOffset}
+            highlights={sourceHighlights}
+          />
         </section>
 
         <section className="pane ir-pane">
@@ -215,7 +273,10 @@ export function App() {
           <IRViewer
             ir={displayState?.ir ?? null}
             instructions={displayState?.instructions ?? []}
+            mappings={displayState?.mappings ?? []}
             selectedIds={selectedIds}
+            onHoverInstruction={setHoveredInstructionId}
+            onPinInstruction={togglePinnedInstruction}
           />
         </section>
       </main>
