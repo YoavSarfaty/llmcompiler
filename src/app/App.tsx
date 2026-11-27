@@ -3,6 +3,7 @@ import { SourceEditor } from "../editor/SourceEditor.tsx";
 import { IRViewer } from "../ir/IRViewer.tsx";
 import { MockLlmClient } from "../model/MockLlmClient.ts";
 import { FIB_SOURCE } from "../model/fibFixture.ts";
+import { Console } from "../console/Console.tsx";
 import { runCompilation, type CompileOutput } from "../compiler/coordinator.ts";
 import { LIMITS } from "../compiler/limits.ts";
 import { hasErrors, type Diagnostic } from "../types/diagnostics.ts";
@@ -193,15 +194,7 @@ export function App() {
             ) : null}
           </div>
         ) : (
-          <div className="console">
-            <div className="console-line muted">Execution is unavailable in this build.</div>
-            <div className="console-line muted">
-              The toolchain worker, WASI imports and the console runtime land with the LLVM artifact.
-            </div>
-            <div className="console-line">
-              <span className="prompt-mark">$</span> <span className="caret" />
-            </div>
-          </div>
+          <Console diagnostics={state?.diagnostics ?? []} />
         )}
       </section>
     </div>
