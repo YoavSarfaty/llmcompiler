@@ -1,7 +1,12 @@
 import { diagnostic, type Diagnostic } from "../types/diagnostics.ts";
 import { analyzeLine } from "./irText.ts";
 import type { IrModule } from "./irSpans.ts";
-import { describeSignature, SIGNATURES_BY_SYMBOL, type CanonicalSignature } from "./abi.ts";
+import {
+  CANONICAL_GLOBALS,
+  describeSignature,
+  SIGNATURES_BY_SYMBOL,
+  type CanonicalSignature,
+} from "./abi.ts";
 
 /**
  * Checks the module against ABI v1 (spec §3.3, §3.5).
@@ -130,6 +135,20 @@ export function checkAbi(module: IrModule): Diagnostic[] {
     }
   }
 
+  for (const global of module.globals) {
+    if (!CANONICAL_GLOBALS.includes(global.name)) continue;
+    if (!new RegExp(`^@${global.name}\\s*=\\s*external\\s+global\\s+ptr\\s*$`).test(global.text.trim())) {
+      diagnostics.push(
+        diagnostic("E017", {
+          stage: "conformance",
+          message: `Runtime global @${global.name} does not match ABI v1.`,
+          details: `Expected: @${global.name} = external global ptr.`,
+          irRanges: [{ line: global.startLine, column: 1 }],
+        }),
+      );
+    }
+  }
+
   const mains = parsed.filter((signature) => signature.kind === "define" && signature.symbol === "main");
   for (const main of mains) {
     const okReturn = main.returns === "i32";
@@ -179,4 +198,13 @@ export function mismatchedRuntimeDeclarationSymbols(module: IrModule): string[] 
       return signature.kind === "declare" && canonical !== undefined && !signatureMatches(signature, canonical);
     })
     .map((signature) => signature.symbol);
+}
+
+export function mismatchedRuntimeGlobalSymbols(module: IrModule): string[] {
+  return module.globals
+    .filter((global) => {
+      if (!CANONICAL_GLOBALS.includes(global.name)) return false;
+      return !new RegExp(`^@${global.name}\\s*=\\s*external\\s+global\\s+ptr\\s*$`).test(global.text.trim());
+    })
+    .map((global) => global.name);
 }

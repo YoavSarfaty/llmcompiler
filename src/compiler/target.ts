@@ -1,5 +1,8 @@
 import { diagnostic, type Diagnostic } from "../types/diagnostics.ts";
-import { mismatchedRuntimeDeclarationSymbols } from "./abiChecker.ts";
+import {
+  mismatchedRuntimeDeclarationSymbols,
+  mismatchedRuntimeGlobalSymbols,
+} from "./abiChecker.ts";
 import { parseIrModule } from "./irSpans.ts";
 import { SIGNATURES_BY_SYMBOL } from "./abi.ts";
 
@@ -48,20 +51,30 @@ export function injectTarget(ir: string): InjectedIr {
 /** Replace mismatched runtime prototypes with the ABI's canonical declarations. */
 export function normalizeRuntimeDeclarations(ir: string): InjectedIr {
   const module = parseIrModule(ir);
-  const mismatched = new Set(mismatchedRuntimeDeclarationSymbols(module));
+  const mismatchedFunctions = new Set(mismatchedRuntimeDeclarationSymbols(module));
+  const mismatchedGlobals = new Set(mismatchedRuntimeGlobalSymbols(module));
+  const mismatched = new Set([...mismatchedFunctions, ...mismatchedGlobals]);
   if (mismatched.size === 0) return { ir, diagnostics: [] };
 
-  const edits = module.declarations
-    .filter((declaration) => mismatched.has(declaration.symbol))
-    .map((declaration) => {
-      const signature = SIGNATURES_BY_SYMBOL.get(declaration.symbol)!;
-      return {
-        start: declaration.startLine - 1,
-        end: declaration.endLine,
-        text: `declare ${signature.returns} @${signature.symbol}(${signature.params.join(", ")})`,
-      };
-    })
-    .sort((left, right) => left.start - right.start);
+  const edits = [
+    ...module.declarations
+      .filter((declaration) => mismatchedFunctions.has(declaration.symbol))
+      .map((declaration) => {
+        const signature = SIGNATURES_BY_SYMBOL.get(declaration.symbol)!;
+        return {
+          start: declaration.startLine - 1,
+          end: declaration.endLine,
+          text: `declare ${signature.returns} @${signature.symbol}(${signature.params.join(", ")})`,
+        };
+      }),
+    ...module.globals
+      .filter((global) => mismatchedGlobals.has(global.name))
+      .map((global) => ({
+        start: global.startLine - 1,
+        end: global.endLine,
+        text: `@${global.name} = external global ptr`,
+      })),
+  ].sort((left, right) => left.start - right.start);
 
   const lines = [...module.lines];
   for (const edit of [...edits].reverse()) {
