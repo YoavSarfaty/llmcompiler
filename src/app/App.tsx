@@ -259,6 +259,12 @@ export function App() {
               not available in this build. The Run control is intentionally disabled.
             </p>
             <p>
+              Published compiler limits are 32 KiB and 4,096 lines of source, plus 256 KiB of generated IR.
+              The runtime contract specifies 5 seconds, 256 MiB of linear memory, and 1 MiB of captured
+              output, but those runtime limits are not exercised until the WASI toolchain is integrated.
+              The supported IR subset excludes typed pointers, inline assembly, exceptions, and threads.
+            </p>
+            <p>
               No telemetry, analytics, backend, or remote inference is configured. The diagnostic bundle
               contains version identifiers, codes, static diagnostic titles, timings, and review status only; it excludes
               source text, IR, source ranges, and raw tool details.

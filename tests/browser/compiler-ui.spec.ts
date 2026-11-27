@@ -4,6 +4,8 @@ test("maps the reference source and IR in both directions", async ({ page }) => 
   await page.goto("/");
   await expect(page.getByText("IR checks passed · LLVM unavailable", { exact: true })).toBeVisible();
   await expect(page.getByText("Mock review: pass", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "About & limitations" }).click();
+  await expect(page.getByRole("region", { name: "About and limitations" })).toContainText("32 KiB");
 
   const instruction = page.getByRole("button", { name: /Instruction fn:fib#4/ });
   await expect(instruction).toBeVisible();
