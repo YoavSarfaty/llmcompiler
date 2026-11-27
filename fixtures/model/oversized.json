@@ -1,0 +1,1 @@
+{"protocolVersion":1,"schemaVersion":1,"requestId":"fixture-oversized","documentVersion":1,"status":"error","diagnostics":[{"code":"E014","severity":"error","message":"Generated IR exceeds the 256 KiB output limit."}]}

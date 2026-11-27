@@ -1,0 +1,1 @@
+{"protocolVersion":1,"schemaVersion":1,"requestId":"fixture-missing-main","documentVersion":1,"status":"success","ir":"define i32 @worker() {\nentry:\n  ret i32 0\n}","mappings":[],"diagnostics":[]}

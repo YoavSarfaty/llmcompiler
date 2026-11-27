@@ -1,16 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { normalizeModelText, parseCompileResponse, parseReviewResponse } from "../../src/model/responseParser.ts";
+import { fixture } from "../helpers.ts";
 
-const validCompile = JSON.stringify({
-  protocolVersion: 1,
-  schemaVersion: 1,
-  requestId: "parse-test",
-  documentVersion: 1,
-  status: "success",
-  ir: "define i32 @main() {\nentry:\n  ret i32 0\n}",
-  mappings: [],
-  diagnostics: [],
-});
+const validCompile = fixture("model", "valid.json");
 
 describe("model response normalization", () => {
   it("strips a leading BOM and reports W005", () => {
@@ -20,14 +12,14 @@ describe("model response normalization", () => {
   });
 
   it("strips one JSON fence and trailing prose with W006", () => {
-    const raw = `\uFEFF\`\`\`json\n${validCompile}\n\`\`\` trailing prose`;
+    const raw = fixture("model", "fenced.json").replace("\n```", "\n``` trailing prose");
     const result = parseCompileResponse(raw);
     expect(result.value).toBeDefined();
-    expect(result.diagnostics.map((item) => item.code)).toEqual(["W005", "W006", "W006"]);
+    expect(result.diagnostics.map((item) => item.code)).toEqual(["W006", "W006"]);
   });
 
   it("returns E019 for invalid JSON and schema-invalid objects", () => {
-    expect(parseCompileResponse("not JSON").diagnostics.some((item) => item.code === "E019")).toBe(true);
+    expect(parseCompileResponse(fixture("model", "not-json.json")).diagnostics.some((item) => item.code === "E019")).toBe(true);
     expect(parseCompileResponse("{}").diagnostics.some((item) => item.code === "E019")).toBe(true);
   });
 

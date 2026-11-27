@@ -1,0 +1,1 @@
+{"protocolVersion":1,"schemaVersion":1,"requestId":"fixture-prompt","documentVersion":1,"status":"error","diagnostics":[{"code":"E001","severity":"error","message":"Source input error: expected user-written code."}]}

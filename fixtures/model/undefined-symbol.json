@@ -1,0 +1,1 @@
+{"protocolVersion":1,"schemaVersion":1,"requestId":"fixture-undefined-symbol","documentVersion":1,"status":"success","ir":"define i32 @main() {\nentry:\n  %r = call i32 @mystery()\n  ret i32 0\n}","mappings":[],"diagnostics":[]}
